@@ -62,7 +62,8 @@ const audioPlayer = immediate(() => {
   return {
     play(src, rate, volume) {
       if (current) current.playback.unsubscribe()
-      const url = (src instanceof Blob) ? URL.createObjectURL(src) : src
+      const isBlob = src instanceof Blob
+      const url = isBlob ? URL.createObjectURL(src) : src
       const playbackState$ = new rxjs.BehaviorSubject("resumed")
       return new Promise((fulfill, reject) => {
         current = {
@@ -72,6 +73,7 @@ const audioPlayer = immediate(() => {
             error: reject
           })
         }
+        if (isBlob) current.playback.add(() => URL.revokeObjectURL(url))
       })
     },
     pause() {
