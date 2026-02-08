@@ -138,6 +138,15 @@ async function updateSetting(name, value) {
   await brapi.storage.local.set(items)
 }
 
+
+function getRateSettingKey(voiceName) {
+  return "rate" + (voiceName || "")
+}
+
+function getRateWithDefault(rate) {
+  return rate != null ? rate : defaults.rate
+}
+
 function observeSetting(name) {
   return rxjs.concat(
     rxjs.defer(() => getSetting(name)),

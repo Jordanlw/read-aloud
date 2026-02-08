@@ -63,11 +63,17 @@ async function init() {
   $("#btnSettings").click(onSettings);
   $("#btnForward").click(onForward);
   $("#btnRewind").click(onRewind);
+  const rateLabel = brapi.i18n.getMessage("options_rate_label")
+  $("#playback-speed")
+    .attr({title: rateLabel, "aria-label": rateLabel})
+    .on("change", onPlaybackSpeedChange);
   $("#decrease-font-size").click(changeFontSize.bind(null, -1));
   $("#increase-font-size").click(changeFontSize.bind(null, +1));
   $("#decrease-window-size").click(changeWindowSize.bind(null, -1));
   $("#increase-window-size").click(changeWindowSize.bind(null, +1));
   $("#toggle-dark-mode").click(toggleDarkMode);
+
+  observePlaybackRate();
 
   refreshSize();
   checkAnnouncements();
@@ -252,6 +258,45 @@ function scrollIntoView(child, scrollParent) {
     scrollParent.animate({scrollTop: scrollParent[0].scrollTop + childTop - 10})
 }
 
+
+function observePlaybackRate() {
+  observeSetting("voiceName")
+    .pipe(
+      rxjs.switchMap(voiceName =>
+        observeSetting(getRateSettingKey(voiceName)).pipe(
+          rxjs.map(rate => ({voiceName, rate}))
+        )
+      )
+    )
+    .subscribe(({rate}) => renderPlaybackRate(getRateWithDefault(rate)))
+}
+
+function renderPlaybackRate(rate) {
+  $("#playback-speed").val(formatPlaybackRate(rate))
+}
+
+function onPlaybackSpeedChange() {
+  const rate = normalizePlaybackRate($(this).val())
+  renderPlaybackRate(rate)
+  getSettings(["voiceName"])
+    .then(({voiceName}) => updateSetting(getRateSettingKey(voiceName), rate))
+    .catch(handleError)
+}
+
+function normalizePlaybackRate(value) {
+  const minRate = 0.125
+  const maxRate = 10
+  const step = 0.125
+  const parsedRate = Number(value)
+  const currentRate = Number.isFinite(parsedRate) ? parsedRate : defaults.rate
+  const clampedRate = Math.max(minRate, Math.min(maxRate, currentRate))
+  const steppedRate = Math.round(clampedRate / step) * step
+  return Number(steppedRate.toFixed(3))
+}
+
+function formatPlaybackRate(rate) {
+  return Number(rate.toFixed(3)).toString()
+}
 
 
 var currentPlayRequestId

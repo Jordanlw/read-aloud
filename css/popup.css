@@ -18,12 +18,57 @@ body {
   min-width: 85px;
   text-align: center;
   margin: 15px;
-  white-space: nowrap;
+  white-space: normal;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2px;
 }
 #buttons > img {
   vertical-align: top;
 }
 
+
+#playback-speed-container {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: top;
+  margin: 0 2px;
+  padding: 0 4px;
+  height: 37px;
+  border: 2px outset;
+  border-radius: 5px;
+  background-color: #e4e4e4;
+  color: #757575;
+}
+
+#playback-speed {
+  height: 26px;
+  width: 56px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: .85rem;
+  padding: 0;
+}
+
+#playback-speed:focus {
+  outline: none;
+}
+
+.playback-speed-unit {
+  font-size: .85rem;
+}
+
+#playback-speed-container:active {
+  border: 2px inset;
+}
+
+.dark-mode #playback-speed-container {
+  background-color: #4a4a4a;
+  color: #ddd;
+  border-color: #666;
+}
 .button-1 {
   cursor: pointer;
   border: 2px outset;
