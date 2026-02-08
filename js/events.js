@@ -19,6 +19,7 @@ var handlers = {
   forward: forward,
   rewind: rewind,
   seek: seek,
+  setPlaybackRate: setPlaybackRate,
   reportIssue: reportIssue,
   authWavenet: authWavenet,
   managePiperVoices,
@@ -267,6 +268,10 @@ function rewind() {
 
 function seek(n) {
   return sendToPlayer({method: "seek", args: [n]})
+}
+
+function setPlaybackRate(rate) {
+  return sendToPlayer({method: "setPlaybackRate", args: [rate]})
 }
 
 

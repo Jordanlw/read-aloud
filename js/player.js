@@ -160,6 +160,7 @@ var messageHandlers = {
   forward: forward,
   rewind: rewind,
   seek: seek,
+  setPlaybackRate: setPlaybackRate,
   close: closePlayer,
   shouldPlaySilence: shouldPlaySilence.bind({}),
   startPairing: () => phoneTtsEngine.startPairing(),
@@ -311,6 +312,11 @@ function rewind() {
 function seek(n) {
   if (activeDoc) return activeDoc.seek(n);
   else return Promise.reject(new Error("Can't seek, not active"));
+}
+
+function setPlaybackRate(rate) {
+  if (activeDoc) return activeDoc.setPlaybackRate(rate)
+  else return Promise.resolve()
 }
 
 function closePlayer() {

@@ -145,6 +145,7 @@ function Doc(source, onEnd) {
   this.forward = forward;
   this.rewind = rewind;
   this.seek = seek;
+  this.setPlaybackRate = setPlaybackRate;
 
   //method close
   function close() {
@@ -386,5 +387,10 @@ function Doc(source, onEnd) {
   function seek(n) {
     if (activeSpeech) return activeSpeech.seek(n);
     else return Promise.reject(new Error("Can't seek, not active"));
+  }
+
+  function setPlaybackRate(rate) {
+    if (activeSpeech && activeSpeech.setRate) activeSpeech.setRate(rate)
+    return Promise.resolve()
   }
 }
