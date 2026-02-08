@@ -117,7 +117,7 @@
       const slider = createSlider($("#rate").get(0), {
           onChange(value) {
             const rate = Math.pow($("#rate").data("pow"), value)
-            updateSetting("rate" + $("#voices").val(), Number(rate.toFixed(3)))
+            updateSetting(getRateSettingKey($("#voices").val()), Number(rate.toFixed(3)))
           }
         })
       $("#rate-edit-button")
@@ -131,21 +131,22 @@
           else if (val < .1) $(this).val(.1);
           else if (val > 10) $(this).val(10);
           else $("#rate-edit-button").hide();
-          updateSetting("rate" + $("#voices").val(), Number($(this).val()))
+          updateSetting(getRateSettingKey($("#voices").val()), Number($(this).val()))
         });
       return slider
     })
 
   const rateObservable = observeSetting("voiceName")
     .pipe(
-      rxjs.switchMap(voiceName => observeSetting("rate" + (voiceName || ""))),
+      rxjs.switchMap(voiceName => observeSetting(getRateSettingKey(voiceName))),
       rxjs.share()
     )
 
   rxjs.combineLatest([rateObservable, rateSliderPromise])
     .subscribe(([rate, slider]) => {
-      slider.setValue(Math.log(rate || defaults.rate) / Math.log($("#rate").data("pow")))
-      $("#rate-input").val(rate || defaults.rate)
+      const selectedRate = getRateWithDefault(rate)
+      slider.setValue(Math.log(selectedRate) / Math.log($("#rate").data("pow")))
+      $("#rate-input").val(selectedRate)
     })
 
   rxjs.combineLatest([observeSetting("voiceName"), rateObservable, domReadyPromise])
