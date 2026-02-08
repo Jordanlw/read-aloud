@@ -459,12 +459,13 @@ function createPlayerFrame() {
 }
 
 async function createPlayerTab() {
+  const settings = await getSettings(["pinPlayerTab"])
   const tab = await brapi.tabs.create({
     url: brapi.runtime.getURL("player.html?autoclose"),
     index: 0,
     active: false,
   })
-  await brapi.tabs.update(tab.id, {pinned: true})
+  if (settings.pinPlayerTab) await brapi.tabs.update(tab.id, {pinned: true})
 }
 
 

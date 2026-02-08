@@ -135,13 +135,16 @@ function handleError(err) {
     $("#status a").click(async function() {
       try {
         playerCheckIn$.pipe(rxjs.take(1)).subscribe(() => $("#btnPlay").click())
+        const settings = await getSettings(["pinPlayerTab"])
         const tab = await brapi.tabs.create({
           url: "player.html?opener=popup&autoclose=long",
           index: 0,
           active: false,
         })
-        brapi.tabs.update(tab.id, {pinned: true})
-          .catch(console.error)
+        if (settings.pinPlayerTab) {
+          brapi.tabs.update(tab.id, {pinned: true})
+            .catch(console.error)
+        }
       } catch (err) {
         handleError(err)
       }
