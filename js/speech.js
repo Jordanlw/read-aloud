@@ -1,6 +1,6 @@
 
 function Speech(texts, options) {
-  options.rate = (options.rate || 1) * (isGoogleNative(options.voice) ? 0.9 : 1);
+  options.rate = adjustRateForVoice(options.rate || 1);
 
   for (var i=0; i<texts.length; i++) if (/[\w)]$/.test(texts[i])) texts[i] += '.';
   if (texts.length) texts = getChunks(texts.join("\n\n"));
@@ -22,7 +22,21 @@ function Speech(texts, options) {
     cmd$.next({name: "seek", index})
     playbackState$.next("resumed")
   }
+  this.setRate = rate => {
+    const adjustedRate = adjustRateForVoice(rate || 1)
+    if (options.rate == adjustedRate) return
+    options.rate = adjustedRate
+    const index = playlist.getIndex()
+    if (index != null) {
+      cmd$.next({name: "seek", index})
+      playbackState$.next("resumed")
+    }
+  }
   this.gotoEnd = () => cmd$.next({name: "gotoEnd"})
+
+  function adjustRateForVoice(rate) {
+    return rate * (isGoogleNative(options.voice) ? 0.9 : 1)
+  }
 
   function pickEngine() {
     if (isPiperVoice(options.voice)) return piperTtsEngine;

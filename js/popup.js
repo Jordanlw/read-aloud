@@ -282,7 +282,12 @@ function onPlaybackSpeedChange() {
   const rate = normalizePlaybackRate($(this).val())
   renderPlaybackRate(rate)
   getSettings(["voiceName"])
-    .then(({voiceName}) => updateSetting(getRateSettingKey(voiceName), rate))
+    .then(({voiceName}) => Promise.all([
+      updateSetting(getRateSettingKey(voiceName), rate),
+      bgPageInvoke("setPlaybackRate", [rate]).catch(err => {
+        console.debug("setPlaybackRate failed", err)
+      })
+    ]))
     .catch(handleError)
 }
 
