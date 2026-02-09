@@ -62,6 +62,9 @@
   "options_highlighting_popup": {
     "message": "팝업에 표시"
   },
+  "options_highlighting_page": {
+    "message": "Highlight in page text"
+  },
   "options_highlighting_window": {
     "message": "별도 창에 표시"
   },

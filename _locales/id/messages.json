@@ -62,6 +62,9 @@
   "options_highlighting_popup": {
     "message": "Tampilkan di popup"
   },
+  "options_highlighting_page": {
+    "message": "Highlight in page text"
+  },
   "options_highlighting_window": {
     "message": "Tampilkan di jendela terpisah"
   },

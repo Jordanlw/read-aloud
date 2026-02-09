@@ -62,6 +62,9 @@
   "options_highlighting_popup": {
     "message": "Показати у спливаючому вікні"
   },
+  "options_highlighting_page": {
+    "message": "Highlight in page text"
+  },
   "options_highlighting_window": {
     "message": "Показати в окремому вікні"
   },

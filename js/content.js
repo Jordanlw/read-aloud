@@ -119,8 +119,13 @@
     const tick = async () => {
       if (disposed) return
       try {
-        const stateInfo = await bgPageInvoke("getPlaybackStateForSender")
-        const isVisible = Boolean(stateInfo && stateInfo.activeForSender && ["LOADING", "PLAYING", "PAUSED"].includes(stateInfo.state) && stateInfo.speechInfo)
+        const [stateInfo, settings] = await Promise.all([
+          bgPageInvoke("getPlaybackStateForSender"),
+          getSettings(["showHighlighting"]),
+        ])
+        const showHighlighting = Number(migrateShowHighlightingValue(settings.showHighlighting) || defaults.showHighlighting)
+        const isBottomOverlayMode = showHighlighting === 1
+        const isVisible = Boolean(isBottomOverlayMode && stateInfo && stateInfo.activeForSender && ["LOADING", "PLAYING", "PAUSED"].includes(stateInfo.state) && stateInfo.speechInfo)
         if (isVisible) ui.render(stateInfo.speechInfo)
         else ui.hide()
       }

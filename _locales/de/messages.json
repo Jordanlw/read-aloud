@@ -62,6 +62,9 @@
   "options_highlighting_popup": {
     "message": "Im Popup anzeigen"
   },
+  "options_highlighting_page": {
+    "message": "Highlight in page text"
+  },
   "options_highlighting_window": {
     "message": "In separatem Fenster anzeigen"
   },
