@@ -187,7 +187,8 @@ async function playText(text, opts) {
 }
 
 async function playTab(tabId) {
-  const tab = tabId ? await getTab(tabId) : await getActiveTab()
+  const normalizedTabId = typeof tabId == "number" ? tabId : undefined
+  const tab = normalizedTabId ? await getTab(normalizedTabId) : await getActiveTab()
   if (!tab) throw new Error(JSON.stringify({code: "error_page_unreadable"}))
 
   const task = currentTask.begin()
@@ -213,7 +214,8 @@ async function playTab(tabId) {
 }
 
 async function reloadAndPlayTab(tabId) {
-  const tab = tabId ? await getTab(tabId) : await getActiveTab()
+  const normalizedTabId = typeof tabId == "number" ? tabId : undefined
+  const tab = normalizedTabId ? await getTab(normalizedTabId) : await getActiveTab()
 
   const task = currentTask.begin()
   try {
