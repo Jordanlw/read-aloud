@@ -114,18 +114,18 @@
 
   function startInPageHighlighting() {
     let disposed = false
-    const ui = createInPageHighlightUi()
+    const highlighter = createInPageWordHighlighter()
 
     const tick = async () => {
       if (disposed) return
       try {
         const stateInfo = await bgPageInvoke("getPlaybackStateForSender")
-        const isVisible = Boolean(stateInfo && stateInfo.activeForSender && ["LOADING", "PLAYING", "PAUSED"].includes(stateInfo.state) && stateInfo.speechInfo)
-        if (isVisible) ui.render(stateInfo.speechInfo)
-        else ui.hide()
+        const shouldHighlight = Boolean(stateInfo && stateInfo.activeForSender && stateInfo.state == "PLAYING" && stateInfo.speechInfo)
+        if (shouldHighlight) highlighter.render(stateInfo.speechInfo)
+        else highlighter.clear()
       }
       catch (err) {
-        ui.hide()
+        highlighter.clear()
       }
       finally {
         if (!disposed) setTimeout(tick, 350)
@@ -135,70 +135,193 @@
     tick()
     window.addEventListener("pagehide", () => {
       disposed = true
-      ui.dispose()
+      highlighter.dispose()
     }, {once: true})
   }
 
-  function createInPageHighlightUi() {
-    const id = "readaloud-inpage-highlight"
-    const styleId = "readaloud-inpage-highlight-style"
-    let host = document.getElementById(id)
-    if (!host) {
-      host = document.createElement("div")
-      host.id = id
-      host.style.display = "none"
-      document.documentElement.appendChild(host)
-    }
+  function createInPageWordHighlighter() {
+    const styleId = "readaloud-word-highlight-style"
+    const className = "readaloud-word-highlight"
+    let currentHighlight = null
+    let lastMatchStart = 0
 
     if (!document.getElementById(styleId)) {
       const style = document.createElement("style")
       style.id = styleId
       style.textContent = `
-#${id}{position:fixed;left:12px;right:12px;bottom:12px;z-index:2147483646;background:rgba(0,0,0,.78);color:#fff;padding:10px 12px;border-radius:8px;font:15px/1.5 Arial,sans-serif;max-height:30vh;overflow:auto;box-shadow:0 4px 18px rgba(0,0,0,.35)}
-#${id} .ra-line{cursor:pointer}
-#${id} .ra-active{background:#fdd663;color:#000;border-radius:3px}
+.${className}{background:#fdd663;color:inherit;border-radius:2px}
 `
       document.documentElement.appendChild(style)
     }
 
     function render(speech) {
-      if (!speech || !Array.isArray(speech.texts)) return hide()
-      host.style.direction = speech.isRTL ? "rtl" : ""
-      host.innerHTML = ""
+      clear()
+      if (!speech || !Array.isArray(speech.texts)) return
       const pos = speech.position || {index: 0}
-      for (let i=0; i<speech.texts.length; i++) {
-        const line = document.createElement("div")
-        line.className = "ra-line"
-        const text = String(speech.texts[i] || "")
-        if (i === pos.index && pos.word && pos.word.endIndex > pos.word.startIndex) {
-          const a = text.slice(0, pos.word.startIndex)
-          const b = text.slice(pos.word.startIndex, pos.word.endIndex)
-          const c = text.slice(pos.word.endIndex)
-          line.append(document.createTextNode(a))
-          const active = document.createElement("span")
-          active.className = "ra-active"
-          active.textContent = b
-          line.append(active)
-          line.append(document.createTextNode(c))
-        }
-        else {
-          line.textContent = text
-          if (i === pos.index) line.classList.add("ra-active")
-        }
-        host.appendChild(line)
-      }
-      host.style.display = "block"
+      if (!pos.word || pos.word.endIndex <= pos.word.startIndex) return
+      const lineText = String(speech.texts[pos.index] || "")
+      if (!lineText) return
+
+      const segment = resolveSpeechWordRange(lineText, pos.word.startIndex, pos.word.endIndex, lastMatchStart)
+      if (!segment) return
+      lastMatchStart = segment.matchStart
+
+      const range = document.createRange()
+      range.setStart(segment.start.node, segment.start.offset)
+      range.setEnd(segment.end.node, segment.end.offset)
+
+      const highlight = document.createElement("span")
+      highlight.className = className
+      highlight.appendChild(range.extractContents())
+      range.insertNode(highlight)
+      currentHighlight = highlight
     }
 
-    function hide() {
-      host.style.display = "none"
+    function clear() {
+      if (!currentHighlight || !currentHighlight.parentNode) {
+        currentHighlight = null
+        return
+      }
+      const parent = currentHighlight.parentNode
+      while (currentHighlight.firstChild) parent.insertBefore(currentHighlight.firstChild, currentHighlight)
+      parent.removeChild(currentHighlight)
+      parent.normalize()
+      currentHighlight = null
     }
 
     function dispose() {
-      hide()
+      clear()
     }
 
-    return {render, hide, dispose}
+    return {render, clear, dispose}
+  }
+
+  function resolveSpeechWordRange(lineText, wordStart, wordEnd, preferredStart) {
+    const target = normalizeForMatch(lineText)
+    if (!target.text) return null
+
+    const docText = collectDocumentTextForMatch()
+    if (!docText.text) return null
+
+    const matches = []
+    let searchFrom = 0
+    while (true) {
+      const index = docText.text.indexOf(target.text, searchFrom)
+      if (index < 0) break
+      matches.push(index)
+      searchFrom = index + 1
+    }
+    if (!matches.length) return null
+
+    const matchStart = pickBestMatch(matches, preferredStart)
+    const startInTarget = rawOffsetToNormalizedOffset(lineText, wordStart)
+    const endInTarget = rawOffsetToNormalizedOffset(lineText, wordEnd)
+    const startIndex = matchStart + startInTarget
+    const endIndex = matchStart + endInTarget
+    if (startIndex >= endIndex || !docText.map[startIndex] || !docText.map[endIndex-1]) return null
+
+    return {
+      matchStart: matchStart,
+      start: docText.map[startIndex],
+      end: {
+        node: docText.map[endIndex-1].node,
+        offset: docText.map[endIndex-1].offset + 1,
+      },
+    }
+  }
+
+  function pickBestMatch(matches, preferredStart) {
+    let best = matches[0]
+    let bestDistance = Math.abs(best - preferredStart)
+    for (let i=1; i<matches.length; i++) {
+      const distance = Math.abs(matches[i] - preferredStart)
+      if (distance < bestDistance) {
+        best = matches[i]
+        bestDistance = distance
+      }
+    }
+    return best
+  }
+
+  function normalizeForMatch(text) {
+    const out = []
+    let prevWhitespace = true
+    for (let i=0; i<text.length; i++) {
+      const ch = text[i]
+      if (/\s/.test(ch)) {
+        if (!prevWhitespace) {
+          out.push(" ")
+          prevWhitespace = true
+        }
+      }
+      else {
+        out.push(ch)
+        prevWhitespace = false
+      }
+    }
+    if (out.length && out[out.length-1] == " ") out.pop()
+    return {text: out.join("")}
+  }
+
+  function rawOffsetToNormalizedOffset(text, rawOffset) {
+    const cappedOffset = Math.max(0, Math.min(rawOffset, text.length))
+    let normalizedOffset = 0
+    let prevWhitespace = true
+    for (let i=0; i<cappedOffset; i++) {
+      if (/\s/.test(text[i])) {
+        if (!prevWhitespace) {
+          normalizedOffset++
+          prevWhitespace = true
+        }
+      }
+      else {
+        normalizedOffset++
+        prevWhitespace = false
+      }
+    }
+    return normalizedOffset
+  }
+
+  function collectDocumentTextForMatch() {
+    const root = document.querySelector("article, main, [role='main']") || document.body
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode: node => {
+        if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT
+        if (!node.parentElement) return NodeFilter.FILTER_REJECT
+        if (node.parentElement.closest("script, style, noscript, textarea, input, select, option, button, .readaloud-word-highlight")) return NodeFilter.FILTER_REJECT
+        const style = window.getComputedStyle(node.parentElement)
+        if (style.display == "none" || style.visibility == "hidden") return NodeFilter.FILTER_REJECT
+        return NodeFilter.FILTER_ACCEPT
+      }
+    })
+
+    const text = []
+    const map = []
+    let prevWhitespace = true
+    while (walker.nextNode()) {
+      const node = walker.currentNode
+      const value = node.nodeValue
+      for (let i=0; i<value.length; i++) {
+        const ch = value[i]
+        if (/\s/.test(ch)) {
+          if (!prevWhitespace) {
+            text.push(" ")
+            map.push({node: node, offset: i})
+            prevWhitespace = true
+          }
+        }
+        else {
+          text.push(ch)
+          map.push({node: node, offset: i})
+          prevWhitespace = false
+        }
+      }
+    }
+    if (text.length && text[text.length-1] == " ") {
+      text.pop()
+      map.pop()
+    }
+    return {text: text.join(""), map: map}
   }
 })()
 
