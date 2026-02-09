@@ -109,6 +109,97 @@
     if (result && result.error) throw result.error
     else return result
   }
+
+  startInPageHighlighting()
+
+  function startInPageHighlighting() {
+    let disposed = false
+    const ui = createInPageHighlightUi()
+
+    const tick = async () => {
+      if (disposed) return
+      try {
+        const stateInfo = await bgPageInvoke("getPlaybackStateForSender")
+        const isVisible = Boolean(stateInfo && stateInfo.activeForSender && ["LOADING", "PLAYING", "PAUSED"].includes(stateInfo.state) && stateInfo.speechInfo)
+        if (isVisible) ui.render(stateInfo.speechInfo)
+        else ui.hide()
+      }
+      catch (err) {
+        ui.hide()
+      }
+      finally {
+        if (!disposed) setTimeout(tick, 350)
+      }
+    }
+
+    tick()
+    window.addEventListener("pagehide", () => {
+      disposed = true
+      ui.dispose()
+    }, {once: true})
+  }
+
+  function createInPageHighlightUi() {
+    const id = "readaloud-inpage-highlight"
+    const styleId = "readaloud-inpage-highlight-style"
+    let host = document.getElementById(id)
+    if (!host) {
+      host = document.createElement("div")
+      host.id = id
+      host.style.display = "none"
+      document.documentElement.appendChild(host)
+    }
+
+    if (!document.getElementById(styleId)) {
+      const style = document.createElement("style")
+      style.id = styleId
+      style.textContent = `
+#${id}{position:fixed;left:12px;right:12px;bottom:12px;z-index:2147483646;background:rgba(0,0,0,.78);color:#fff;padding:10px 12px;border-radius:8px;font:15px/1.5 Arial,sans-serif;max-height:30vh;overflow:auto;box-shadow:0 4px 18px rgba(0,0,0,.35)}
+#${id} .ra-line{cursor:pointer}
+#${id} .ra-active{background:#fdd663;color:#000;border-radius:3px}
+`
+      document.documentElement.appendChild(style)
+    }
+
+    function render(speech) {
+      if (!speech || !Array.isArray(speech.texts)) return hide()
+      host.style.direction = speech.isRTL ? "rtl" : ""
+      host.innerHTML = ""
+      const pos = speech.position || {index: 0}
+      for (let i=0; i<speech.texts.length; i++) {
+        const line = document.createElement("div")
+        line.className = "ra-line"
+        const text = String(speech.texts[i] || "")
+        if (i === pos.index && pos.word && pos.word.endIndex > pos.word.startIndex) {
+          const a = text.slice(0, pos.word.startIndex)
+          const b = text.slice(pos.word.startIndex, pos.word.endIndex)
+          const c = text.slice(pos.word.endIndex)
+          line.append(document.createTextNode(a))
+          const active = document.createElement("span")
+          active.className = "ra-active"
+          active.textContent = b
+          line.append(active)
+          line.append(document.createTextNode(c))
+        }
+        else {
+          line.textContent = text
+          if (i === pos.index) line.classList.add("ra-active")
+        }
+        host.appendChild(line)
+      }
+      host.style.display = "block"
+    }
+
+    function hide() {
+      host.style.display = "none"
+    }
+
+    function dispose() {
+      hide()
+    }
+
+    return {render, hide, dispose}
+  }
 })()
 
 
