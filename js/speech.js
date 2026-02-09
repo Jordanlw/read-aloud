@@ -7,6 +7,7 @@ function Speech(texts, options) {
 
   const engine = pickEngine()
   let enginePlaybackState
+  let playbackCursor = null
 
   this.options = options;
   this.play = () => playbackState$.next("resumed")
@@ -26,6 +27,21 @@ function Speech(texts, options) {
     const adjustedRate = adjustRateForVoice(rate || 1)
     if (options.rate == adjustedRate) return
     options.rate = adjustedRate
+
+    const canResumeAtCurrentCursor = Boolean(engine.seek && playbackCursor?.engineIndex != null)
+    if (canResumeAtCurrentCursor) {
+      cmd$.next({name: "seek", cursor: playbackCursor})
+      playbackState$.next("resumed")
+      return
+    }
+
+    // Chunk-based engines usually cannot preserve an in-chunk position after restarting.
+    // Keep current playback and only apply the new rate to future chunks.
+    if (!playlist.hasSingleChunk()) return
+
+    // Single chunk voices should never jump back to index 0 when changing rate.
+    if (isPiperVoice(options.voice) || isSupertonicVoice(options.voice)) return
+
     const index = playlist.getIndex()
     if (index != null) {
       if (engine.seek != null) {
@@ -151,7 +167,7 @@ function Speech(texts, options) {
         }
         case "seek": {
           if (engine.seek != null) {
-            engine.seek(cmd.index)
+            engine.seek(cmd.cursor?.engineIndex != null ? cmd.cursor.engineIndex : cmd.index)
             return current
           } else {
             const playback$ = playlist.seek(cmd.index)
@@ -191,6 +207,13 @@ function Speech(texts, options) {
       isLoadingSubject.next(event.type == "load")
       switch (event.type) {
         case "start":
+          playbackCursor = {
+            chunkIndex: playlist.getIndex(),
+            sentence: null,
+            paragraph: null,
+            word: null,
+            engineIndex: 0,
+          }
           if (event.sentenceStartIndicies) {
             enginePlaybackState = {
               texts: event.sentenceStartIndicies.map((startIndex, i, arr) => texts[0].slice(startIndex, arr[i+1])),
@@ -203,8 +226,17 @@ function Speech(texts, options) {
           }
           break
         case "sentence":
+          if (playbackCursor) {
+            playbackCursor.sentence = {startIndex: event.startIndex, endIndex: event.endIndex}
+          }
           if (enginePlaybackState) {
             enginePlaybackState.index = enginePlaybackState.sentenceStartIndicies.indexOf(event.startIndex)
+            if (playbackCursor) playbackCursor.engineIndex = enginePlaybackState.index
+          }
+          break
+        case "paragraph":
+          if (playbackCursor) {
+            playbackCursor.paragraph = {startIndex: event.startIndex, endIndex: event.endIndex}
           }
           break
         case "end":
@@ -245,6 +277,9 @@ function Speech(texts, options) {
       },
       canRewind() {
         return index > 0
+      },
+      hasSingleChunk() {
+        return texts.length <= 1
       },
       forward() {
         if (index+1 < texts.length) {
