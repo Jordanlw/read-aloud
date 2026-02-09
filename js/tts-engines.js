@@ -1106,7 +1106,11 @@ function AzureTtsEngine() {
 function PiperTtsEngine() {
   let control = null
   let isSpeaking = false
+  let currentUtterance = null
+  let currentOptions = null
   this.speak = function(utterance, options, onEvent) {
+    currentUtterance = utterance
+    currentOptions = options
     const piperPromise = rxjs.firstValueFrom(piperObservable)
     control = new rxjs.Subject()
     control
@@ -1137,6 +1141,21 @@ function PiperTtsEngine() {
               return piper.sendRequest("rewind")
             case "seek":
               return piper.sendRequest("seek", {index: cmd.index})
+            case "setRate":
+              console.debug("[PiperTtsEngine] setRate command", {rate: cmd.rate, sentenceIndex: cmd.sentenceIndex})
+              return piper.sendRequest("setRate", {rate: cmd.rate})
+                .catch(err => {
+                  console.warn("[PiperTtsEngine] setRate unsupported, restarting with sentence index", {rate: cmd.rate, sentenceIndex: cmd.sentenceIndex, error: err})
+                  return piper.sendRequest("speak", {
+                    utterance: currentUtterance,
+                    voiceName: currentOptions.voice.voiceName,
+                    pitch: currentOptions.pitch,
+                    rate: cmd.rate,
+                    volume: currentOptions.volume,
+                    externalPlayback: cmd.rate && cmd.rate != 1,
+                    index: cmd.sentenceIndex || 0,
+                  })
+                })
           }
         }),
         rxjs.ignoreElements(),
@@ -1185,13 +1204,20 @@ function PiperTtsEngine() {
   this.seek = function(index) {
     control?.next({type: "seek", index})
   }
+  this.setRate = function(rate, {sentenceIndex} = {}) {
+    control?.next({type: "setRate", rate, sentenceIndex})
+  }
 }
 
 
 function SupertonicTtsEngine() {
   let control = null
   let isSpeaking = false
+  let currentUtterance = null
+  let currentOptions = null
   this.speak = function(utterance, options, onEvent) {
+    currentUtterance = utterance
+    currentOptions = options
     const supertonicPromise = rxjs.firstValueFrom(supertonic$)
     control = new rxjs.Subject()
     control.pipe(
@@ -1221,6 +1247,21 @@ function SupertonicTtsEngine() {
             return supertonic.sendRequest("rewind")
           case "seek":
             return supertonic.sendRequest("seek", {index: cmd.index})
+          case "setRate":
+            console.debug("[SupertonicTtsEngine] setRate command", {rate: cmd.rate, sentenceIndex: cmd.sentenceIndex})
+            return supertonic.sendRequest("setRate", {rate: cmd.rate})
+              .catch(err => {
+                console.warn("[SupertonicTtsEngine] setRate unsupported, restarting with sentence index", {rate: cmd.rate, sentenceIndex: cmd.sentenceIndex, error: err})
+                return supertonic.sendRequest("speak", {
+                  utterance: currentUtterance,
+                  voiceName: currentOptions.voice.voiceName,
+                  pitch: currentOptions.pitch,
+                  rate: cmd.rate,
+                  volume: currentOptions.volume,
+                  externalPlayback: cmd.rate && cmd.rate != 1,
+                  index: cmd.sentenceIndex || 0,
+                })
+              })
         }
       }),
       rxjs.ignoreElements(),
@@ -1268,5 +1309,8 @@ function SupertonicTtsEngine() {
   }
   this.seek = function(index) {
     control?.next({type: "seek", index})
+  }
+  this.setRate = function(rate, {sentenceIndex} = {}) {
+    control?.next({type: "setRate", rate, sentenceIndex})
   }
 }

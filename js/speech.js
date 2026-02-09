@@ -28,7 +28,13 @@ function Speech(texts, options) {
     options.rate = adjustedRate
     const index = playlist.getIndex()
     if (index != null) {
-      cmd$.next({name: "seek", index})
+      if (engine.seek != null) {
+        const sentenceIndex = enginePlaybackState?.index
+        console.debug("[Speech] setRate command", {rate: adjustedRate, index, sentenceIndex})
+        cmd$.next({name: "setRate", rate: adjustedRate, index, sentenceIndex})
+      } else {
+        cmd$.next({name: "seek", index})
+      }
       playbackState$.next("resumed")
     }
   }
@@ -145,6 +151,18 @@ function Speech(texts, options) {
         }
         case "seek": {
           if (engine.seek != null) {
+            engine.seek(cmd.index)
+            return current
+          } else {
+            const playback$ = playlist.seek(cmd.index)
+            return playback$ ? {playback$, ts: Date.now()} : current
+          }
+        }
+        case "setRate": {
+          if (engine.setRate != null) {
+            engine.setRate(cmd.rate, {index: cmd.index, sentenceIndex: cmd.sentenceIndex})
+            return current
+          } else if (engine.seek != null) {
             engine.seek(cmd.index)
             return current
           } else {
