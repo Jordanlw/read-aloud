@@ -106,9 +106,11 @@ function registerMessageListener(name, handlers) {
   async function handle(request) {
     const handler = handlers[request.method]
     if (!handler) throw new Error("Bad method " + request.method)
-    const args = Array.isArray(request.args) ? request.args.slice() : []
-    args.push({sender: request._sender})
-    return handler.apply(null, args)
+    return handler.call(
+      null,
+      ...(Array.isArray(request.args) ? request.args : []),
+      {sender: request._sender}
+    )
   }
 }
 
