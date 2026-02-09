@@ -96,6 +96,7 @@ function registerMessageListener(name, handlers) {
   brapi.runtime.onMessage.addListener(
     function(request, sender, sendResponse) {
       if (request.dest == name) {
+        request._sender = sender
         handle(request)
           .then(sendResponse, err => sendResponse({error: errorToJson(err)}))
         return true
@@ -105,7 +106,9 @@ function registerMessageListener(name, handlers) {
   async function handle(request) {
     const handler = handlers[request.method]
     if (!handler) throw new Error("Bad method " + request.method)
-    return handler.apply(null, request.args)
+    const args = Array.isArray(request.args) ? request.args.slice() : []
+    args.push({sender: request._sender})
+    return handler.apply(null, args)
   }
 }
 

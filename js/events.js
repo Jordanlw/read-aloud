@@ -16,6 +16,7 @@ var handlers = {
   pause: pause,
   resume: resume,
   getPlaybackState: getPlaybackState,
+  getPlaybackStateForSender: getPlaybackStateForSender,
   forward: forward,
   rewind: rewind,
   seek: seek,
@@ -256,6 +257,16 @@ async function getPlaybackState() {
   catch (err) {
     return {state: "STOPPED"}
   }
+}
+
+async function getPlaybackStateForSender(context) {
+  const stateInfo = await getPlaybackState()
+  const tabId = context?.sender?.tab?.id
+  if (!tabId) return {state: "STOPPED", activeForSender: false}
+
+  const {sourceUri} = await brapi.storage.local.get(["sourceUri"])
+  const activeForSender = sourceUri === `contentscript:${tabId}`
+  return Object.assign({}, stateInfo, {activeForSender})
 }
 
 function forward() {
