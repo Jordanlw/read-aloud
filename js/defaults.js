@@ -36,7 +36,7 @@ var defaults = {
   rate: 1.0,
   pitch: 1.0,
   volume: 1.0,
-  showHighlighting: 1,
+  showHighlighting: 3,
   highlightFontSize: 3,
   highlightWindowSize: 2,
   pinPlayerTab: false,
@@ -72,9 +72,8 @@ migrateStoredSettings().catch(console.error)
 
 async function migrateStoredSettings() {
   const {showHighlighting} = await brapi.storage.local.get(["showHighlighting"])
-  const migratedValue = migrateShowHighlightingValue(showHighlighting)
-  if (migratedValue != null && String(showHighlighting) !== migratedValue) {
-    await brapi.storage.local.set({showHighlighting: migratedValue})
+  if (showHighlighting == null || showHighlighting === "") {
+    await brapi.storage.local.set({showHighlighting: String(defaults.showHighlighting)})
   }
 }
 
