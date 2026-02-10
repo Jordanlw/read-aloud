@@ -165,7 +165,7 @@ async function updateButtons() {
     getSettings(),
     bgPageInvoke("getPlaybackState"),
   ])
-  const showHighlighting = settings.showHighlighting != null ? Number(settings.showHighlighting) : defaults.showHighlighting
+  const showHighlighting = Number(migrateShowHighlightingValue(settings.showHighlighting) || defaults.showHighlighting)
   var state = stateInfo.state
   const speech = stateInfo.speechInfo
   var playbackErr = stateInfo.playbackError
@@ -180,7 +180,13 @@ async function updateButtons() {
   $("#btnStop").toggle(state == "PAUSED" || state == "PLAYING" || state == "LOADING");
   $("#btnForward, #btnRewind").toggle(state == "PLAYING" || state == "PAUSED");
 
-  $("#highlight, #toolbar").hide()
+  if ((state == "PLAYING" || state == "PAUSED") && speech && (showHighlighting == 1 || showHighlighting == 2)) {
+    updateHighlighting(speech)
+    $("#highlight, #toolbar").show()
+  }
+  else {
+    $("#highlight, #toolbar").hide()
+  }
 }
 
 function updateHighlighting(speech) {
