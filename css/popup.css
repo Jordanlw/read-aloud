@@ -20,9 +20,17 @@ body {
   margin: 15px;
   white-space: normal;
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+#playback-controls {
+  display: flex;
   flex-wrap: wrap;
   justify-content: center;
   gap: 2px;
+  width: 100%;
 }
 #buttons > img {
   vertical-align: top;
