@@ -167,6 +167,7 @@
     let unresolvedSince = 0
     let lastResolvedPoint = null
     let lastResolvedPositionIndex = null
+    let lastRenderedKey = null
 
     if (!document.getElementById(styleId)) {
       const style = document.createElement("style")
@@ -238,12 +239,23 @@
         return
       }
 
+      const renderKey = `${positionIndex}:${segment.matchStart}:${segment.start.offset}:${segment.end.offset}`
+      if (renderKey == lastRenderedKey) {
+        unresolvedSince = 0
+        lastMatchStart = segment.matchStart
+        lastResolvedPoint = segment.start
+        lastResolvedPositionIndex = positionIndex
+        lastPositionIndex = positionIndex
+        return
+      }
+
       unresolvedSince = 0
       clear()
       lastMatchStart = segment.matchStart
       lastResolvedPoint = segment.start
       lastResolvedPositionIndex = positionIndex
       lastPositionIndex = positionIndex
+      lastRenderedKey = renderKey
 
       const range = document.createRange()
       range.setStart(segment.start.node, segment.start.offset)
@@ -260,6 +272,7 @@
     function clear() {
       if (!currentHighlight || !currentHighlight.parentNode) {
         currentHighlight = null
+        lastRenderedKey = null
         unresolvedSince = 0
         return
       }
@@ -268,6 +281,7 @@
       parent.removeChild(currentHighlight)
       parent.normalize()
       currentHighlight = null
+      lastRenderedKey = null
       unresolvedSince = 0
     }
 
@@ -326,7 +340,7 @@
       failureCount: failureCount,
     })
 
-    const shouldRetryWithBody = failureCount >= 2 && docText.root && docText.root.mode != "body"
+    const shouldRetryWithBody = failureCount >= 1 && docText.root && docText.root.mode != "body"
     if (!shouldRetryWithBody) return null
 
     const bodyDocText = collectDocumentTextForMatch({forceBody: true, sectionKey: sectionKey})
