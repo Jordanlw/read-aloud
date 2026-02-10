@@ -211,7 +211,7 @@ function updateHighlighting(speech) {
     elem.data("position", pos);
     elem.find(".active").removeClass("active");
     const child = elem.children().eq(pos.index)
-    const section = pos.word
+    const section = getHighlightSection(pos, speech.texts[pos.index])
     if (section) {
       child.empty()
       const text = speech.texts[pos.index]
@@ -241,6 +241,24 @@ function updateHighlighting(speech) {
 function makeSpan(text) {
   const html = escapeHtml(text).replace(/\r?\n/g, "<br/>")
   return $("<span>").html(html)
+}
+
+function getHighlightSection(position, text) {
+  const candidate = position.word || position.sentence || position.paragraph
+  if (!candidate || candidate.endIndex <= candidate.startIndex) return null
+
+  const boundedStart = Math.max(0, Math.min(candidate.startIndex, text.length))
+  const boundedEnd = Math.max(0, Math.min(candidate.endIndex, text.length))
+  if (boundedEnd <= boundedStart) return null
+
+  const selected = text.slice(boundedStart, boundedEnd)
+  const leadingWhitespace = selected.match(/^\s+/)?.[0].length || 0
+  const trailingWhitespace = selected.match(/\s+$/)?.[0].length || 0
+  const startIndex = boundedStart + leadingWhitespace
+  const endIndex = boundedEnd - trailingWhitespace
+
+  if (endIndex > startIndex) return {startIndex, endIndex}
+  return {startIndex: boundedStart, endIndex: boundedEnd}
 }
 
 function positionDiffers(left, right) {
