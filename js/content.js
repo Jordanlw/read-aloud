@@ -345,11 +345,41 @@
     if (!matches.length) return null
 
     const matchStart = pickBestMatch(matches, preferredStart)
-    const startInTarget = rawOffsetToNormalizedOffset(lineText, sectionStart)
-    const endInTarget = rawOffsetToNormalizedOffset(lineText, sectionEnd)
+    let startInTarget = rawOffsetToNormalizedOffset(lineText, sectionStart)
+    let endInTarget = rawOffsetToNormalizedOffset(lineText, sectionEnd)
+    const hasOutOfRangeOffsets = startInTarget < 0 || endInTarget > targetText.length || startInTarget >= endInTarget
+    if (hasOutOfRangeOffsets) {
+      console.debug("[ReadAloud][highlight] Section offsets outside normalized target; recovering with paragraph match", {
+        sectionStart: sectionStart,
+        sectionEnd: sectionEnd,
+        startInTarget: startInTarget,
+        endInTarget: endInTarget,
+        targetLength: targetText.length,
+      })
+      startInTarget = 0
+      endInTarget = targetText.length
+    }
+
     const startIndex = matchStart + startInTarget
     const endIndex = matchStart + endInTarget
-    if (startIndex >= endIndex || !docText.map[startIndex] || !docText.map[endIndex-1]) return null
+    if (startIndex >= endIndex || !docText.map[startIndex] || !docText.map[endIndex-1]) {
+      console.debug("[ReadAloud][highlight] Section map bounds unresolved; recovering with paragraph match", {
+        startIndex: startIndex,
+        endIndex: endIndex,
+        mapLength: docText.map.length,
+      })
+      const paragraphStartIndex = matchStart
+      const paragraphEndIndex = matchStart + targetText.length
+      if (paragraphStartIndex >= paragraphEndIndex || !docText.map[paragraphStartIndex] || !docText.map[paragraphEndIndex-1]) return null
+      return {
+        matchStart: matchStart,
+        start: docText.map[paragraphStartIndex],
+        end: {
+          node: docText.map[paragraphEndIndex-1].node,
+          offset: docText.map[paragraphEndIndex-1].offset + 1,
+        },
+      }
+    }
 
     return {
       matchStart: matchStart,
@@ -420,42 +450,11 @@
   }
 
   function normalizeForMatch(text) {
-    const out = []
-    let prevWhitespace = true
-    for (let i=0; i<text.length; i++) {
-      const ch = text[i]
-      if (/\s/.test(ch)) {
-        if (!prevWhitespace) {
-          out.push(" ")
-          prevWhitespace = true
-        }
-      }
-      else {
-        out.push(ch)
-        prevWhitespace = false
-      }
-    }
-    if (out.length && out[out.length-1] == " ") out.pop()
-    return {text: out.join("")}
+    return readAloudMatchNormalization.normalizeText(text || "")
   }
 
   function rawOffsetToNormalizedOffset(text, rawOffset) {
-    const cappedOffset = Math.max(0, Math.min(rawOffset, text.length))
-    let normalizedOffset = 0
-    let prevWhitespace = true
-    for (let i=0; i<cappedOffset; i++) {
-      if (/\s/.test(text[i])) {
-        if (!prevWhitespace) {
-          normalizedOffset++
-          prevWhitespace = true
-        }
-      }
-      else {
-        normalizedOffset++
-        prevWhitespace = false
-      }
-    }
-    return normalizedOffset
+    return readAloudMatchNormalization.rawOffsetToNormalizedOffset(text || "", rawOffset)
   }
 
   function collectDocumentTextForMatch(options) {
@@ -507,33 +506,16 @@
       }
     })
 
-    const text = []
-    const map = []
-    let prevWhitespace = true
+    const rawEntries = []
     while (walker.nextNode()) {
       const node = walker.currentNode
       const value = node.nodeValue
       for (let i=0; i<value.length; i++) {
-        const ch = value[i]
-        if (/\s/.test(ch)) {
-          if (!prevWhitespace) {
-            text.push(" ")
-            map.push({node: node, offset: i})
-            prevWhitespace = true
-          }
-        }
-        else {
-          text.push(ch)
-          map.push({node: node, offset: i})
-          prevWhitespace = false
-        }
+        rawEntries.push({char: value[i], node: node, offset: i})
       }
     }
-    if (text.length && text[text.length-1] == " ") {
-      text.pop()
-      map.pop()
-    }
-    return {text: text.join(""), map: map, root: rootInfo}
+    const normalized = readAloudMatchNormalization.normalizeEntries(rawEntries)
+    return {text: normalized.text, map: normalized.map, root: rootInfo}
   }
 })()
 
@@ -575,6 +557,97 @@ function fixParagraphs(texts) {
   if (para) out.push(para);
   return out;
 }
+
+var readAloudMatchNormalization = window.readAloudMatchNormalization || (window.readAloudMatchNormalization = new function() {
+  this.normalizeText = function(text) {
+    var normalized = normalizeRawEntries(toRawEntries(text || ""));
+    return {text: normalized.text};
+  }
+
+  this.rawOffsetToNormalizedOffset = function(text, rawOffset) {
+    var source = text || "";
+    var cappedOffset = Math.max(0, Math.min(Number(rawOffset) || 0, source.length));
+    var normalizedOffsetByRawOffset = buildNormalizedOffsetByRawOffset(toRawEntries(source));
+    return normalizedOffsetByRawOffset[cappedOffset];
+  }
+
+  this.normalizeEntries = function(rawEntries) {
+    return normalizeRawEntries(rawEntries || []);
+  }
+
+  function toRawEntries(text) {
+    var entries = [];
+    for (var i=0; i<text.length; i++) entries.push({char: text[i]});
+    return entries;
+  }
+
+  function buildNormalizedOffsetByRawOffset(rawEntries) {
+    var normalizedOffsetByRawOffset = new Array(rawEntries.length + 1).fill(0);
+    var normalizedOffset = 0;
+    var prevWhitespace = true;
+    for (var i=0; i<rawEntries.length; i++) {
+      normalizedOffsetByRawOffset[i] = normalizedOffset;
+      var entry = rawEntries[i];
+      if (shouldInsertSentencePunctuation(rawEntries, i)) normalizedOffset++;
+      if (/\s/.test(entry.char)) {
+        if (!prevWhitespace) {
+          normalizedOffset++;
+          prevWhitespace = true;
+        }
+      }
+      else {
+        normalizedOffset++;
+        prevWhitespace = false;
+      }
+    }
+    if (normalizedOffset > 0 && prevWhitespace) normalizedOffset--;
+    normalizedOffsetByRawOffset[rawEntries.length] = normalizedOffset;
+    return normalizedOffsetByRawOffset;
+  }
+
+  function normalizeRawEntries(rawEntries) {
+    var text = [];
+    var map = [];
+    var prevWhitespace = true;
+    for (var i=0; i<rawEntries.length; i++) {
+      var entry = rawEntries[i] || {char: ""};
+      if (shouldInsertSentencePunctuation(rawEntries, i) && map.length) {
+        text.push(".");
+        map.push(map[map.length-1]);
+      }
+      if (/\s/.test(entry.char)) {
+        if (!prevWhitespace) {
+          text.push(" ");
+          map.push({node: entry.node, offset: entry.offset});
+          prevWhitespace = true;
+        }
+      }
+      else {
+        text.push(entry.char);
+        map.push({node: entry.node, offset: entry.offset});
+        prevWhitespace = false;
+      }
+    }
+    if (text.length && text[text.length-1] == " ") {
+      text.pop();
+      map.pop();
+    }
+    return {text: text.join(""), map: map};
+  }
+
+  function shouldInsertSentencePunctuation(rawEntries, index) {
+    var entry = rawEntries[index];
+    if (!entry || !/\w/.test(entry.char)) return false;
+    var foundWhitespace = false;
+    for (var i=index+1; i<rawEntries.length; i++) {
+      var ch = rawEntries[i].char;
+      if (!/\s/.test(ch)) return false;
+      foundWhitespace = true;
+      if (ch == "\n") return foundWhitespace;
+    }
+    return false;
+  }
+});
 
 function tryGetTexts(getTexts, millis) {
   return waitMillis(500)
