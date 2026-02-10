@@ -263,7 +263,12 @@
     const target = normalizeForMatch(lineText)
     if (!target.text) return null
 
-    const docText = collectDocumentTextForMatch()
+    const sectionKey = [
+      Number.isFinite(options.positionIndex) ? options.positionIndex : "na",
+      sectionStart,
+      sectionEnd,
+    ].join(":")
+    const docText = collectDocumentTextForMatch({sectionKey: sectionKey})
     if (!docText.text) return null
 
     const localAnchors = [preferredStart]
@@ -274,10 +279,69 @@
       localAnchors.push(preferredStart + estimatedShift)
     }
 
-    const localMatch = findBestMatchNearAnchors(docText.text, target.text, localAnchors)
+    let segment = resolveSegmentInDocumentText(docText, target.text, lineText, sectionStart, sectionEnd, localAnchors, preferredStart)
+    if (segment) {
+      noteRootMatchSuccess(options.positionIndex, sectionKey, docText.root)
+      return segment
+    }
+
+    const failureCount = noteRootMatchFailure(options.positionIndex)
+    console.debug("[ReadAloud][highlight] Match unresolved", {
+      positionIndex: options.positionIndex,
+      sectionKey: sectionKey,
+      rootMode: docText.root && docText.root.mode,
+      failureCount: failureCount,
+    })
+
+    const shouldRetryWithBody = failureCount >= 2 && docText.root && docText.root.mode != "body"
+    if (!shouldRetryWithBody) return null
+
+    const bodyDocText = collectDocumentTextForMatch({forceBody: true, sectionKey: sectionKey})
+    if (!bodyDocText.text) return null
+    console.debug("[ReadAloud][highlight] Retrying match with document.body fallback", {
+      positionIndex: options.positionIndex,
+      sectionKey: sectionKey,
+    })
+
+    segment = resolveSegmentInDocumentText(bodyDocText, target.text, lineText, sectionStart, sectionEnd, localAnchors, preferredStart)
+    if (!segment) return null
+
+    noteRootMatchSuccess(options.positionIndex, sectionKey, bodyDocText.root)
+    return segment
+  }
+
+  const rootMatchState = {
+    failuresByPosition: Object.create(null),
+    lastSuccessfulRoot: null,
+    lastSuccessfulSectionKey: null,
+  }
+
+  function noteRootMatchFailure(positionIndex) {
+    const key = Number.isFinite(positionIndex) ? positionIndex : "na"
+    const failures = (rootMatchState.failuresByPosition[key] || 0) + 1
+    rootMatchState.failuresByPosition[key] = failures
+    return failures
+  }
+
+  function noteRootMatchSuccess(positionIndex, sectionKey, rootInfo) {
+    const key = Number.isFinite(positionIndex) ? positionIndex : "na"
+    rootMatchState.failuresByPosition[key] = 0
+    if (rootInfo && rootInfo.node && rootInfo.node.isConnected) {
+      rootMatchState.lastSuccessfulRoot = rootInfo
+      rootMatchState.lastSuccessfulSectionKey = sectionKey
+    }
+    console.debug("[ReadAloud][highlight] Match resolved", {
+      positionIndex: positionIndex,
+      sectionKey: sectionKey,
+      rootMode: rootInfo && rootInfo.mode,
+    })
+  }
+
+  function resolveSegmentInDocumentText(docText, targetText, lineText, sectionStart, sectionEnd, localAnchors, preferredStart) {
+    const localMatch = findBestMatchNearAnchors(docText.text, targetText, localAnchors)
     const matches = localMatch != null
       ? [localMatch]
-      : collectAllMatchIndexes(docText.text, target.text)
+      : collectAllMatchIndexes(docText.text, targetText)
     if (!matches.length) return null
 
     const matchStart = pickBestMatch(matches, preferredStart)
@@ -394,8 +458,32 @@
     return normalizedOffset
   }
 
-  function collectDocumentTextForMatch() {
-    const root = document.querySelector("article, main, [role='main']") || document.body
+  function collectDocumentTextForMatch(options) {
+    options = options || {}
+    const preferredRoot = document.querySelector("article, main, [role='main']")
+    const shouldReuseCachedRoot = !options.forceBody
+      && options.sectionKey
+      && options.sectionKey == rootMatchState.lastSuccessfulSectionKey
+      && rootMatchState.lastSuccessfulRoot
+      && rootMatchState.lastSuccessfulRoot.node
+      && rootMatchState.lastSuccessfulRoot.node.isConnected
+
+    const rootInfo = options.forceBody
+      ? {node: document.body, mode: "body", reason: "forced-body-fallback"}
+      : shouldReuseCachedRoot
+        ? {node: rootMatchState.lastSuccessfulRoot.node, mode: "cached", reason: "reuse-last-success"}
+        : preferredRoot
+          ? {node: preferredRoot, mode: "semantic", reason: "preferred-semantic-root"}
+          : {node: document.body, mode: "body", reason: "semantic-root-missing"}
+    const root = rootInfo.node || document.body
+
+    console.debug("[ReadAloud][highlight] collectDocumentTextForMatch root selected", {
+      sectionKey: options.sectionKey,
+      rootMode: rootInfo.mode,
+      reason: rootInfo.reason,
+      tagName: root && root.tagName,
+    })
+
     const ephemeralSelector = [
       "[aria-live]",
       "[role='status']",
@@ -445,7 +533,7 @@
       text.pop()
       map.pop()
     }
-    return {text: text.join(""), map: map}
+    return {text: text.join(""), map: map, root: rootInfo}
   }
 })()
 
