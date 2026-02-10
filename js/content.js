@@ -174,11 +174,13 @@
       clear()
       if (!speech || !Array.isArray(speech.texts)) return
       const pos = speech.position || {index: 0}
-      if (!pos.word || pos.word.endIndex <= pos.word.startIndex) return
       const lineText = String(speech.texts[pos.index] || "")
       if (!lineText) return
 
-      const segment = resolveSpeechWordRange(lineText, pos.word.startIndex, pos.word.endIndex, lastMatchStart)
+      const section = getHighlightSection(pos, lineText)
+      if (!section) return
+
+      const segment = resolveSpeechSectionRange(lineText, section.startIndex, section.endIndex, lastMatchStart)
       if (!segment) return
       lastMatchStart = segment.matchStart
 
@@ -212,7 +214,14 @@
     return {render, clear, dispose}
   }
 
-  function resolveSpeechWordRange(lineText, wordStart, wordEnd, preferredStart) {
+  function getHighlightSection(position, lineText) {
+    const candidate = position.word || position.sentence || position.paragraph
+    if (candidate && candidate.endIndex > candidate.startIndex) return candidate
+    if (!lineText) return null
+    return {startIndex: 0, endIndex: lineText.length}
+  }
+
+  function resolveSpeechSectionRange(lineText, sectionStart, sectionEnd, preferredStart) {
     const target = normalizeForMatch(lineText)
     if (!target.text) return null
 
@@ -230,8 +239,8 @@
     if (!matches.length) return null
 
     const matchStart = pickBestMatch(matches, preferredStart)
-    const startInTarget = rawOffsetToNormalizedOffset(lineText, wordStart)
-    const endInTarget = rawOffsetToNormalizedOffset(lineText, wordEnd)
+    const startInTarget = rawOffsetToNormalizedOffset(lineText, sectionStart)
+    const endInTarget = rawOffsetToNormalizedOffset(lineText, sectionEnd)
     const startIndex = matchStart + startInTarget
     const endIndex = matchStart + endInTarget
     if (startIndex >= endIndex || !docText.map[startIndex] || !docText.map[endIndex-1]) return null
