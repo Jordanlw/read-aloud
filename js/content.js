@@ -130,18 +130,18 @@
 
   function startInPageHighlighting() {
     let disposed = false
-    const ui = createInPageHighlightUi()
+    const highlighter = createInPageWordHighlighter()
 
     const tick = async () => {
       if (disposed) return
       try {
         const stateInfo = await bgPageInvoke("getPlaybackStateForSender")
-        const isVisible = Boolean(stateInfo && stateInfo.activeForSender && ["LOADING", "PLAYING", "PAUSED"].includes(stateInfo.state) && stateInfo.speechInfo)
-        if (isVisible) ui.render(stateInfo.speechInfo)
-        else ui.hide()
+        const shouldHighlight = Boolean(stateInfo && stateInfo.activeForSender && stateInfo.state == "PLAYING" && stateInfo.speechInfo)
+        if (shouldHighlight) highlighter.render(stateInfo.speechInfo)
+        else highlighter.clear()
       }
       catch (err) {
-        ui.hide()
+        highlighter.clear()
       }
       finally {
         if (!disposed) setTimeout(tick, 350)
@@ -151,54 +151,193 @@
     tick()
     window.addEventListener("pagehide", () => {
       disposed = true
-      ui.dispose()
+      highlighter.dispose()
     }, {once: true})
   }
 
-  function createInPageHighlightUi() {
-    let active = null
+  function createInPageWordHighlighter() {
+    const styleId = "readaloud-word-highlight-style"
+    const className = "readaloud-word-highlight"
+    let currentHighlight = null
+    let lastMatchStart = 0
+
+    if (!document.getElementById(styleId)) {
+      const style = document.createElement("style")
+      style.id = styleId
+      style.textContent = `
+.${className}{background:#fdd663;color:inherit;border-radius:2px}
+`
+      document.documentElement.appendChild(style)
+    }
 
     function render(speech) {
-      if (!speech || !Array.isArray(speech.texts)) return hide()
-      const chunks = sourceChunkStore.get(getTextsKey(speech.texts))
-      if (!chunks || typeof createTextRangeResolver != "function") return hide()
-      const resolver = new createTextRangeResolver(chunks)
+      clear()
+      if (!speech || !Array.isArray(speech.texts)) return
       const pos = speech.position || {index: 0}
-      const start = pos.word ? pos.word.startIndex : pos.sentence ? pos.sentence.startIndex : 0
-      const end = pos.word ? pos.word.endIndex : pos.sentence ? pos.sentence.endIndex : (speech.texts[pos.index] || "").length
-      let range = resolver.resolveWordRange(pos.index, start, end)
-      if (!range) range = resolver.resolveChunkRange(pos.index)
-      if (!range) range = resolver.resolveNearestBlockRange(pos.index)
-      if (!range) return hide()
-      showRange(range)
+      if (!pos.word || pos.word.endIndex <= pos.word.startIndex) return
+      const lineText = String(speech.texts[pos.index] || "")
+      if (!lineText) return
+
+      const segment = resolveSpeechWordRange(lineText, pos.word.startIndex, pos.word.endIndex, lastMatchStart)
+      if (!segment) return
+      lastMatchStart = segment.matchStart
+
+      const range = document.createRange()
+      range.setStart(segment.start.node, segment.start.offset)
+      range.setEnd(segment.end.node, segment.end.offset)
+
+      const highlight = document.createElement("span")
+      highlight.className = className
+      highlight.appendChild(range.extractContents())
+      range.insertNode(highlight)
+      currentHighlight = highlight
     }
 
-    function showRange(range) {
-      if (active && sameRange(active, range)) return
-      active = range
-      const sel = window.getSelection()
-      sel.removeAllRanges()
-      sel.addRange(range)
-      const elem = range.commonAncestorContainer.nodeType == 1 ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement
-      if (elem && elem.scrollIntoView) elem.scrollIntoView({block: "nearest", inline: "nearest"})
-    }
-
-    function hide() {
-      active = null
-      const sel = window.getSelection()
-      if (sel && sel.rangeCount) sel.removeAllRanges()
+    function clear() {
+      if (!currentHighlight || !currentHighlight.parentNode) {
+        currentHighlight = null
+        return
+      }
+      const parent = currentHighlight.parentNode
+      while (currentHighlight.firstChild) parent.insertBefore(currentHighlight.firstChild, currentHighlight)
+      parent.removeChild(currentHighlight)
+      parent.normalize()
+      currentHighlight = null
     }
 
     function dispose() {
-      hide()
+      clear()
     }
 
-    function sameRange(a, b) {
-      return a.startContainer == b.startContainer && a.startOffset == b.startOffset
-        && a.endContainer == b.endContainer && a.endOffset == b.endOffset
-    }
+    return {render, clear, dispose}
+  }
 
-    return {render, hide, dispose}
+  function resolveSpeechWordRange(lineText, wordStart, wordEnd, preferredStart) {
+    const target = normalizeForMatch(lineText)
+    if (!target.text) return null
+
+    const docText = collectDocumentTextForMatch()
+    if (!docText.text) return null
+
+    const matches = []
+    let searchFrom = 0
+    while (true) {
+      const index = docText.text.indexOf(target.text, searchFrom)
+      if (index < 0) break
+      matches.push(index)
+      searchFrom = index + 1
+    }
+    if (!matches.length) return null
+
+    const matchStart = pickBestMatch(matches, preferredStart)
+    const startInTarget = rawOffsetToNormalizedOffset(lineText, wordStart)
+    const endInTarget = rawOffsetToNormalizedOffset(lineText, wordEnd)
+    const startIndex = matchStart + startInTarget
+    const endIndex = matchStart + endInTarget
+    if (startIndex >= endIndex || !docText.map[startIndex] || !docText.map[endIndex-1]) return null
+
+    return {
+      matchStart: matchStart,
+      start: docText.map[startIndex],
+      end: {
+        node: docText.map[endIndex-1].node,
+        offset: docText.map[endIndex-1].offset + 1,
+      },
+    }
+  }
+
+  function pickBestMatch(matches, preferredStart) {
+    let best = matches[0]
+    let bestDistance = Math.abs(best - preferredStart)
+    for (let i=1; i<matches.length; i++) {
+      const distance = Math.abs(matches[i] - preferredStart)
+      if (distance < bestDistance) {
+        best = matches[i]
+        bestDistance = distance
+      }
+    }
+    return best
+  }
+
+  function normalizeForMatch(text) {
+    const out = []
+    let prevWhitespace = true
+    for (let i=0; i<text.length; i++) {
+      const ch = text[i]
+      if (/\s/.test(ch)) {
+        if (!prevWhitespace) {
+          out.push(" ")
+          prevWhitespace = true
+        }
+      }
+      else {
+        out.push(ch)
+        prevWhitespace = false
+      }
+    }
+    if (out.length && out[out.length-1] == " ") out.pop()
+    return {text: out.join("")}
+  }
+
+  function rawOffsetToNormalizedOffset(text, rawOffset) {
+    const cappedOffset = Math.max(0, Math.min(rawOffset, text.length))
+    let normalizedOffset = 0
+    let prevWhitespace = true
+    for (let i=0; i<cappedOffset; i++) {
+      if (/\s/.test(text[i])) {
+        if (!prevWhitespace) {
+          normalizedOffset++
+          prevWhitespace = true
+        }
+      }
+      else {
+        normalizedOffset++
+        prevWhitespace = false
+      }
+    }
+    return normalizedOffset
+  }
+
+  function collectDocumentTextForMatch() {
+    const root = document.querySelector("article, main, [role='main']") || document.body
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode: node => {
+        if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT
+        if (!node.parentElement) return NodeFilter.FILTER_REJECT
+        if (node.parentElement.closest("script, style, noscript, textarea, input, select, option, button, .readaloud-word-highlight")) return NodeFilter.FILTER_REJECT
+        const style = window.getComputedStyle(node.parentElement)
+        if (style.display == "none" || style.visibility == "hidden") return NodeFilter.FILTER_REJECT
+        return NodeFilter.FILTER_ACCEPT
+      }
+    })
+
+    const text = []
+    const map = []
+    let prevWhitespace = true
+    while (walker.nextNode()) {
+      const node = walker.currentNode
+      const value = node.nodeValue
+      for (let i=0; i<value.length; i++) {
+        const ch = value[i]
+        if (/\s/.test(ch)) {
+          if (!prevWhitespace) {
+            text.push(" ")
+            map.push({node: node, offset: i})
+            prevWhitespace = true
+          }
+        }
+        else {
+          text.push(ch)
+          map.push({node: node, offset: i})
+          prevWhitespace = false
+        }
+      }
+    }
+    if (text.length && text[text.length-1] == " ") {
+      text.pop()
+      map.pop()
+    }
+    return {text: text.join(""), map: map}
   }
 })()
 

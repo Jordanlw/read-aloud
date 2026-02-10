@@ -62,6 +62,9 @@
   "options_highlighting_popup": {
     "message": "在彈出窗口中顯示"
   },
+  "options_highlighting_page": {
+    "message": "Highlight in page text"
+  },
   "options_highlighting_window": {
     "message": "在單獨的窗口中顯示"
   },

@@ -42,6 +42,42 @@ var defaults = {
   pinPlayerTab: false,
 };
 
+const showHighlightingMigrationMap = {
+  "false": "0",
+  "off": "0",
+  "none": "0",
+  "true": "1",
+  "on": "1",
+  "popup": "1",
+  "overlay": "1",
+  "window": "2",
+  "separate-window": "2",
+  "inline": "3",
+  "page": "3",
+  "page-text": "3",
+  "article": "3",
+}
+
+function migrateShowHighlightingValue(value) {
+  if (value == null || value === "") return value
+  const normalized = String(value).trim().toLowerCase()
+  if (showHighlightingMigrationMap[normalized] != null) return showHighlightingMigrationMap[normalized]
+  if (/^\d+$/.test(normalized)) {
+    if (["0", "1", "2", "3"].includes(normalized)) return normalized
+  }
+  return String(defaults.showHighlighting)
+}
+
+migrateStoredSettings().catch(console.error)
+
+async function migrateStoredSettings() {
+  const {showHighlighting} = await brapi.storage.local.get(["showHighlighting"])
+  const migratedValue = migrateShowHighlightingValue(showHighlighting)
+  if (migratedValue != null && String(showHighlighting) !== migratedValue) {
+    await brapi.storage.local.set({showHighlighting: migratedValue})
+  }
+}
+
 var getSingletonAudio = lazy(() => {
   const audio = new Audio()
   audio.crossOrigin = "anonymous"

@@ -62,6 +62,9 @@
   "options_highlighting_popup": {
     "message": "पॉपअप में दिखाएं"
   },
+  "options_highlighting_page": {
+    "message": "Highlight in page text"
+  },
   "options_highlighting_window": {
     "message": "अलग विंडो में दिखाएं"
   },
