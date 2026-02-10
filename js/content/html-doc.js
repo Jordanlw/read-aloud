@@ -171,7 +171,7 @@ var readAloudDoc = new function() {
   }
 
   function getChunk(elem) {
-    var text = addMissingPunctuation(elem.innerText).trim();
+    var text = normalizeChunkText(elem.innerText).trim();
     if (!text) return [];
     var parts = text.split(paragraphSplitter).filter(Boolean);
     var textNodes = collectTextNodes(elem);
@@ -183,7 +183,7 @@ var readAloudDoc = new function() {
           textNodes: textNodes,
           normalizationRules: [
             "innerText",
-            "addMissingPunctuation(/(\\w)(\\s*?\\r?\\n)/g -> $1.$2)",
+            "normalizeChunkText(shared readAloudMatchNormalization)",
             "trim",
             "split(paragraphSplitter)"
           ]
@@ -192,8 +192,15 @@ var readAloudDoc = new function() {
     })
   }
 
+  function normalizeChunkText(text) {
+    if (window.readAloudMatchNormalization && window.readAloudMatchNormalization.normalizeText) {
+      return window.readAloudMatchNormalization.normalizeText(text || "").text;
+    }
+    return (text || "").replace(/(\w)(\s*?\r?\n)/g, "$1.$2").replace(/\s+/g, " ").trim();
+  }
+
   function addMissingPunctuation(text) {
-    return text.replace(/(\w)(\s*?\r?\n)/g, "$1.$2");
+    return normalizeChunkText(text);
   }
 
   function collectTextNodes(elem) {
