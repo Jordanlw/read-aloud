@@ -106,7 +106,10 @@ function Speech(texts, options) {
     return {
       texts: enginePlaybackState ? enginePlaybackState.texts : texts,
       position: {
-        index: enginePlaybackState ? enginePlaybackState.index : playlist.getIndex()
+        index: enginePlaybackState ? enginePlaybackState.index : playlist.getIndex(),
+        sentence: playbackCursor && playbackCursor.sentence,
+        paragraph: playbackCursor && playbackCursor.paragraph,
+        word: playbackCursor && playbackCursor.word,
       },
       isRTL: /^(ar|az|dv|he|iw|ku|fa|ur)\b/.test(options.lang),
       engine: immediate(() => {

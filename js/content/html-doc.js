@@ -72,7 +72,14 @@ var readAloudDoc = new function() {
     $(toRead).addClass("read-aloud");   //for debugging only
 
     //extract texts
-    return toRead.flatMap(getTexts).filter(isNotEmpty);
+    var chunks = toRead.flatMap(getChunks).filter(isNotEmptyChunk);
+    var cursor = 0;
+    chunks.forEach(function(chunk) {
+      chunk.source.cumulativeCharStart = cursor;
+      cursor += chunk.text.length;
+      chunk.source.cumulativeCharEnd = cursor;
+    })
+    return chunks;
   }
 
   function findTextBlocks(threshold) {
@@ -137,15 +144,15 @@ var readAloudDoc = new function() {
     return {mean: mean, stdev: Math.sqrt(variance)};
   }
 
-  function getTexts(elem) {
+  function getChunks(elem) {
     var toHide = $(elem).find(":visible").filter(dontRead).hide();
     $(elem).find("ol, ul").addBack("ol, ul").each(addNumbering);
-    var texts = $(elem).data("read-aloud-multi-block")
-      ? $(elem).children(":visible").get().map(getText)
-      : getText(elem).split(paragraphSplitter);
+    var chunks = $(elem).data("read-aloud-multi-block")
+      ? $(elem).children(":visible").get().flatMap(getChunk)
+      : getChunk(elem);
     $(elem).find(".read-aloud-numbering").remove();
     toHide.show();
-    return texts;
+    return chunks;
   }
 
   function addNumbering() {
@@ -163,12 +170,47 @@ var readAloudDoc = new function() {
     return $(this).is(self.ignoreTags) || $(this).is("sup") || float == "right" || position == "fixed";
   }
 
-  function getText(elem) {
-    return addMissingPunctuation(elem.innerText).trim();
+  function getChunk(elem) {
+    var text = addMissingPunctuation(elem.innerText).trim();
+    if (!text) return [];
+    var parts = text.split(paragraphSplitter).filter(Boolean);
+    var textNodes = collectTextNodes(elem);
+    return parts.map(function(part) {
+      return {
+        text: part,
+        source: {
+          element: elem,
+          textNodes: textNodes,
+          normalizationRules: [
+            "innerText",
+            "addMissingPunctuation(/(\\w)(\\s*?\\r?\\n)/g -> $1.$2)",
+            "trim",
+            "split(paragraphSplitter)"
+          ]
+        }
+      }
+    })
   }
 
   function addMissingPunctuation(text) {
     return text.replace(/(\w)(\s*?\r?\n)/g, "$1.$2");
+  }
+
+  function collectTextNodes(elem) {
+    var walker = document.createTreeWalker(elem, NodeFilter.SHOW_TEXT);
+    var nodes = [];
+    var node;
+    while (node = walker.nextNode()) {
+      if (!node.nodeValue || !node.nodeValue.trim()) continue;
+      if ($(node.parentElement).is(self.ignoreTags) || $(node.parentElement).is("sup")) continue;
+      if (!$(node.parentElement).is(":visible")) continue;
+      nodes.push(node);
+    }
+    return nodes;
+  }
+
+  function isNotEmptyChunk(chunk) {
+    return chunk && chunk.text;
   }
 
   function findHeadingsFor(block, prevBlock) {

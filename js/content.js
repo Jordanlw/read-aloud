@@ -26,7 +26,7 @@
       if (/^\/presentation\/d\//.test(location.pathname)) return ["js/content/google-slides.js"];
       else if (/\/document\/d\//.test(location.pathname)) return ["js/content/googleDocsUtil.js", "js/content/google-doc.js"];
       else if ($(".drive-viewer-paginated-scrollable").length) return ["js/content/google-drive-doc.js"];
-      else return ["js/content/html-doc.js"];
+      else return ["js/content/text-range-resolver.js", "js/content/html-doc.js"];
     }
     else if (location.hostname == "drive.google.com") {
       if ($(".drive-viewer-paginated-scrollable").length) return ["js/content/google-drive-doc.js"];
@@ -35,9 +35,9 @@
     else if (location.hostname == "onedrive.live.com" && $(".OneUp-pdf--loaded").length) return ["js/content/onedrive-doc.js"];
     else if (/^read\.amazon\./.test(location.hostname)) return ["js/content/kindle-book.js"];
     else if (location.hostname.endsWith(".khanacademy.org")) return ["js/content/khan-academy.js"];
-    else if (location.hostname.endsWith("acrobatiq.com")) return ["js/content/html-doc.js", "js/content/acrobatiq.js"];
-    else if (location.hostname == "digital.wwnorton.com") return ["js/content/html-doc.js", "js/content/wwnorton.js"];
-    else if (location.hostname == "plus.pearson.com") return ["js/content/html-doc.js", "js/content/pearson.js"];
+    else if (location.hostname.endsWith("acrobatiq.com")) return ["js/content/text-range-resolver.js", "js/content/html-doc.js", "js/content/acrobatiq.js"];
+    else if (location.hostname == "digital.wwnorton.com") return ["js/content/text-range-resolver.js", "js/content/html-doc.js", "js/content/wwnorton.js"];
+    else if (location.hostname == "plus.pearson.com") return ["js/content/text-range-resolver.js", "js/content/html-doc.js", "js/content/pearson.js"];
     else if (location.hostname == "www.ixl.com") return ["js/content/ixl.js"];
     else if (location.hostname == "www.webnovel.com" && location.pathname.startsWith("/book/")) return ["js/content/webnovel.js"];
     else if (location.hostname == "archiveofourown.org") return ["js/content/archiveofourown.js"];
@@ -50,13 +50,15 @@
         && location.port === "1122"
         && location.protocol === "http:"
         && location.pathname === "/bookshelf/index.html") return  ["js/content/yd-app-web.js"];
-    else return ["js/content/html-doc.js"];
+    else return ["js/content/text-range-resolver.js", "js/content/html-doc.js"];
   }
 
   async function getCurrentIndex() {
     if (await getSelectedText()) return -100;
     else return readAloudDoc.getCurrentIndex();
   }
+
+  const sourceChunkStore = new Map()
 
   async function getTexts(index, quietly) {
     if (index < 0) {
@@ -65,13 +67,27 @@
     }
     else {
       return Promise.resolve(readAloudDoc.getTexts(index, quietly))
-        .then(function(texts) {
+        .then(function(result) {
+          var texts = normalizeTexts(result)
           if (texts && Array.isArray(texts)) {
             if (!quietly) console.log(texts.join("\n\n"));
           }
           return texts;
         })
     }
+  }
+
+  function normalizeTexts(result) {
+    if (!result || !Array.isArray(result)) return result
+    if (!result.length || typeof result[0] == "string") return result
+    var chunks = result.filter(Boolean)
+    var texts = chunks.map(chunk => chunk.text)
+    sourceChunkStore.set(getTextsKey(texts), chunks)
+    return texts
+  }
+
+  function getTextsKey(texts) {
+    return (texts || []).join("\n\u241E\n")
   }
 
   function getSelectedText() {
@@ -140,62 +156,46 @@
   }
 
   function createInPageHighlightUi() {
-    const id = "readaloud-inpage-highlight"
-    const styleId = "readaloud-inpage-highlight-style"
-    let host = document.getElementById(id)
-    if (!host) {
-      host = document.createElement("div")
-      host.id = id
-      host.style.display = "none"
-      document.documentElement.appendChild(host)
-    }
-
-    if (!document.getElementById(styleId)) {
-      const style = document.createElement("style")
-      style.id = styleId
-      style.textContent = `
-#${id}{position:fixed;left:12px;right:12px;bottom:12px;z-index:2147483646;background:rgba(0,0,0,.78);color:#fff;padding:10px 12px;border-radius:8px;font:15px/1.5 Arial,sans-serif;max-height:30vh;overflow:auto;box-shadow:0 4px 18px rgba(0,0,0,.35)}
-#${id} .ra-line{cursor:pointer}
-#${id} .ra-active{background:#fdd663;color:#000;border-radius:3px}
-`
-      document.documentElement.appendChild(style)
-    }
+    let active = null
 
     function render(speech) {
       if (!speech || !Array.isArray(speech.texts)) return hide()
-      host.style.direction = speech.isRTL ? "rtl" : ""
-      host.innerHTML = ""
+      const chunks = sourceChunkStore.get(getTextsKey(speech.texts))
+      if (!chunks || typeof createTextRangeResolver != "function") return hide()
+      const resolver = new createTextRangeResolver(chunks)
       const pos = speech.position || {index: 0}
-      for (let i=0; i<speech.texts.length; i++) {
-        const line = document.createElement("div")
-        line.className = "ra-line"
-        const text = String(speech.texts[i] || "")
-        if (i === pos.index && pos.word && pos.word.endIndex > pos.word.startIndex) {
-          const a = text.slice(0, pos.word.startIndex)
-          const b = text.slice(pos.word.startIndex, pos.word.endIndex)
-          const c = text.slice(pos.word.endIndex)
-          line.append(document.createTextNode(a))
-          const active = document.createElement("span")
-          active.className = "ra-active"
-          active.textContent = b
-          line.append(active)
-          line.append(document.createTextNode(c))
-        }
-        else {
-          line.textContent = text
-          if (i === pos.index) line.classList.add("ra-active")
-        }
-        host.appendChild(line)
-      }
-      host.style.display = "block"
+      const start = pos.word ? pos.word.startIndex : pos.sentence ? pos.sentence.startIndex : 0
+      const end = pos.word ? pos.word.endIndex : pos.sentence ? pos.sentence.endIndex : (speech.texts[pos.index] || "").length
+      let range = resolver.resolveWordRange(pos.index, start, end)
+      if (!range) range = resolver.resolveChunkRange(pos.index)
+      if (!range) range = resolver.resolveNearestBlockRange(pos.index)
+      if (!range) return hide()
+      showRange(range)
+    }
+
+    function showRange(range) {
+      if (active && sameRange(active, range)) return
+      active = range
+      const sel = window.getSelection()
+      sel.removeAllRanges()
+      sel.addRange(range)
+      const elem = range.commonAncestorContainer.nodeType == 1 ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement
+      if (elem && elem.scrollIntoView) elem.scrollIntoView({block: "nearest", inline: "nearest"})
     }
 
     function hide() {
-      host.style.display = "none"
+      active = null
+      const sel = window.getSelection()
+      if (sel && sel.rangeCount) sel.removeAllRanges()
     }
 
     function dispose() {
       hide()
+    }
+
+    function sameRange(a, b) {
+      return a.startContainer == b.startContainer && a.startOffset == b.startOffset
+        && a.endContainer == b.endContainer && a.endOffset == b.endOffset
     }
 
     return {render, hide, dispose}
