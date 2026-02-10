@@ -62,6 +62,9 @@
   "options_highlighting_popup": {
     "message": "Zobrazit ve vyskakovacím okně"
   },
+  "options_highlighting_page": {
+    "message": "Highlight in page text"
+  },
   "options_highlighting_window": {
     "message": "Zobrazit v samostatném okně"
   },

@@ -62,6 +62,9 @@
   "options_highlighting_popup": {
     "message": "Hiển thị trong cửa sổ bật lên"
   },
+  "options_highlighting_page": {
+    "message": "Highlight in page text"
+  },
   "options_highlighting_window": {
     "message": "Hiển thị trong cửa sổ riêng"
   },

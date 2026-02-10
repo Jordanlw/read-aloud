@@ -191,12 +191,15 @@
     .then(() => {
       $("#show-highlighting")
         .change(function() {
-          updateSettings({showHighlighting: $(this).val()})
+          updateSettings({showHighlighting: migrateShowHighlightingValue($(this).val())})
         })
     })
 
   rxjs.combineLatest([observeSetting("showHighlighting"), domReadyPromise])
-    .subscribe(([showHighlighting]) => $("#show-highlighting").val(showHighlighting || defaults.showHighlighting))
+    .subscribe(([showHighlighting]) => {
+      const selectedHighlighting = migrateShowHighlightingValue(showHighlighting) || String(defaults.showHighlighting)
+      $("#show-highlighting").val(selectedHighlighting)
+    })
 
 
 

@@ -26,7 +26,8 @@ $(function() {
 
 
 getSettings(["showHighlighting", "readAloudTab"]).then(async settings => {
-  if (settings.showHighlighting == 2 && queryString.isPopup) {
+  const showHighlighting = Number(migrateShowHighlightingValue(settings.showHighlighting) || defaults.showHighlighting)
+  if (showHighlighting == 2 && queryString.isPopup) {
     await popout(settings.readAloudTab)
   } else {
     await init()

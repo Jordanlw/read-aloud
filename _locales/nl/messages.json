@@ -62,6 +62,9 @@
   "options_highlighting_popup": {
     "message": "Tonen in popup"
   },
+  "options_highlighting_page": {
+    "message": "Highlight in page text"
+  },
   "options_highlighting_window": {
     "message": "Tonen in apart venster"
   },
