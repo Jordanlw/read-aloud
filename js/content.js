@@ -158,8 +158,13 @@
   function createInPageWordHighlighter() {
     const styleId = "readaloud-word-highlight-style"
     const className = "readaloud-word-highlight"
+    const staleHighlightGraceMs = 1200
     let currentHighlight = null
     let lastMatchStart = 0
+    let lastPositionIndex = null
+    let unresolvedSince = 0
+    let lastResolvedPoint = null
+    let lastResolvedPositionIndex = null
 
     if (!document.getElementById(styleId)) {
       const style = document.createElement("style")
@@ -171,18 +176,42 @@
     }
 
     function render(speech) {
-      clear()
       if (!speech || !Array.isArray(speech.texts)) return
       const pos = speech.position || {index: 0}
-      const lineText = String(speech.texts[pos.index] || "")
+      const positionIndex = Number(pos.index) || 0
+
+      if (isSignificantIndexJump(positionIndex, lastPositionIndex)) {
+        lastMatchStart = 0
+        lastResolvedPoint = null
+        lastResolvedPositionIndex = null
+      }
+
+      const lineText = String(speech.texts[positionIndex] || "")
       if (!lineText) return
 
       const section = getHighlightSection(pos, lineText)
       if (!section) return
 
-      const segment = resolveSpeechSectionRange(lineText, section.startIndex, section.endIndex, lastMatchStart)
-      if (!segment) return
+      const segment = resolveSpeechSectionRange(lineText, section.startIndex, section.endIndex, {
+        preferredStart: lastMatchStart,
+        positionIndex: positionIndex,
+        previousPositionIndex: lastResolvedPositionIndex,
+        previousPoint: lastResolvedPoint,
+      })
+
+      if (!segment) {
+        if (!unresolvedSince) unresolvedSince = Date.now()
+        if (positionIndex != lastPositionIndex || Date.now() - unresolvedSince > staleHighlightGraceMs) clear()
+        lastPositionIndex = positionIndex
+        return
+      }
+
+      unresolvedSince = 0
+      clear()
       lastMatchStart = segment.matchStart
+      lastResolvedPoint = segment.start
+      lastResolvedPositionIndex = positionIndex
+      lastPositionIndex = positionIndex
 
       const range = document.createRange()
       range.setStart(segment.start.node, segment.start.offset)
@@ -198,6 +227,7 @@
     function clear() {
       if (!currentHighlight || !currentHighlight.parentNode) {
         currentHighlight = null
+        unresolvedSince = 0
         return
       }
       const parent = currentHighlight.parentNode
@@ -205,6 +235,7 @@
       parent.removeChild(currentHighlight)
       parent.normalize()
       currentHighlight = null
+      unresolvedSince = 0
     }
 
     function dispose() {
@@ -214,6 +245,11 @@
     return {render, clear, dispose}
   }
 
+  function isSignificantIndexJump(index, previousIndex) {
+    if (typeof previousIndex != "number") return false
+    return Math.abs(index - previousIndex) >= 3
+  }
+
   function getHighlightSection(position, lineText) {
     const candidate = position.word || position.sentence || position.paragraph
     if (candidate && candidate.endIndex > candidate.startIndex) return candidate
@@ -221,21 +257,27 @@
     return {startIndex: 0, endIndex: lineText.length}
   }
 
-  function resolveSpeechSectionRange(lineText, sectionStart, sectionEnd, preferredStart) {
+  function resolveSpeechSectionRange(lineText, sectionStart, sectionEnd, options) {
+    options = options || {}
+    const preferredStart = Number(options.preferredStart) || 0
     const target = normalizeForMatch(lineText)
     if (!target.text) return null
 
     const docText = collectDocumentTextForMatch()
     if (!docText.text) return null
 
-    const matches = []
-    let searchFrom = 0
-    while (true) {
-      const index = docText.text.indexOf(target.text, searchFrom)
-      if (index < 0) break
-      matches.push(index)
-      searchFrom = index + 1
+    const localAnchors = [preferredStart]
+    const anchorFromNode = findMapIndexForNodeContext(docText.map, options.previousPoint)
+    if (anchorFromNode >= 0) localAnchors.unshift(anchorFromNode)
+    if (typeof options.positionIndex == "number" && typeof options.previousPositionIndex == "number") {
+      const estimatedShift = (options.positionIndex - options.previousPositionIndex) * Math.max(1, target.text.length)
+      localAnchors.push(preferredStart + estimatedShift)
     }
+
+    const localMatch = findBestMatchNearAnchors(docText.text, target.text, localAnchors)
+    const matches = localMatch != null
+      ? [localMatch]
+      : collectAllMatchIndexes(docText.text, target.text)
     if (!matches.length) return null
 
     const matchStart = pickBestMatch(matches, preferredStart)
@@ -253,6 +295,51 @@
         offset: docText.map[endIndex-1].offset + 1,
       },
     }
+  }
+
+  function collectAllMatchIndexes(haystack, needle) {
+    const matches = []
+    let searchFrom = 0
+    while (true) {
+      const index = haystack.indexOf(needle, searchFrom)
+      if (index < 0) break
+      matches.push(index)
+      searchFrom = index + 1
+    }
+    return matches
+  }
+
+  function findBestMatchNearAnchors(haystack, needle, anchors) {
+    const radius = 3000
+    let bestMatch = null
+    let bestDistance = Infinity
+    for (const anchor of anchors || []) {
+      if (!Number.isFinite(anchor)) continue
+      const start = Math.max(0, Math.floor(anchor) - radius)
+      const end = Math.min(haystack.length, Math.floor(anchor) + radius)
+      let index = haystack.indexOf(needle, start)
+      while (index >= 0 && index <= end) {
+        const distance = Math.abs(index - anchor)
+        if (distance < bestDistance) {
+          bestDistance = distance
+          bestMatch = index
+        }
+        index = haystack.indexOf(needle, index + 1)
+      }
+    }
+    return bestMatch
+  }
+
+  function findMapIndexForNodeContext(map, point) {
+    if (!point || !point.node) return -1
+    let fallback = -1
+    for (let i=0; i<map.length; i++) {
+      if (map[i].node == point.node) {
+        if (fallback < 0) fallback = i
+        if (map[i].offset >= point.offset) return i
+      }
+    }
+    return fallback
   }
 
   function pickBestMatch(matches, preferredStart) {
@@ -309,11 +396,23 @@
 
   function collectDocumentTextForMatch() {
     const root = document.querySelector("article, main, [role='main']") || document.body
+    const ephemeralSelector = [
+      "[aria-live]",
+      "[role='status']",
+      "[role='alert']",
+      ".ad",
+      ".ads",
+      ".advertisement",
+      "[id*='ad-']",
+      "[class*='countdown']",
+      "[class*='counter']",
+    ].join(", ")
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
       acceptNode: node => {
         if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT
         if (!node.parentElement) return NodeFilter.FILTER_REJECT
         if (node.parentElement.closest("script, style, noscript, textarea, input, select, option, button, .readaloud-word-highlight")) return NodeFilter.FILTER_REJECT
+        if (node.parentElement.closest(ephemeralSelector)) return NodeFilter.FILTER_REJECT
         const style = window.getComputedStyle(node.parentElement)
         if (style.display == "none" || style.visibility == "hidden") return NodeFilter.FILTER_REJECT
         return NodeFilter.FILTER_ACCEPT
