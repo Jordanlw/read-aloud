@@ -158,6 +158,8 @@
   function createInPageWordHighlighter() {
     const styleId = "readaloud-word-highlight-style"
     const className = "readaloud-word-highlight"
+    const diagnosticsAttribute = "data-readaloud-highlighted"
+    const diagnosticsMode = true
     const staleHighlightGraceMs = 1200
     let currentHighlight = null
     let lastMatchStart = 0
@@ -170,7 +172,37 @@
       const style = document.createElement("style")
       style.id = styleId
       style.textContent = `
-.${className}{background:#fdd663;color:inherit;border-radius:2px}
+:root{
+  --readaloud-highlight-bg:#fdd663;
+  --readaloud-highlight-outline:rgba(56,43,0,.9);
+  --readaloud-highlight-shadow:rgba(255,199,0,.75);
+  --readaloud-highlight-text:inherit;
+}
+.${className}{
+  background-color:var(--readaloud-highlight-bg,#fdd663) !important;
+  color:var(--readaloud-highlight-text,inherit) !important;
+  border-radius:2px;
+  outline:2px solid var(--readaloud-highlight-outline,rgba(56,43,0,.9)) !important;
+  outline-offset:1px;
+  box-shadow:0 0 0 2px var(--readaloud-highlight-shadow,rgba(255,199,0,.75)),0 0 6px var(--readaloud-highlight-shadow,rgba(255,199,0,.75)) !important;
+  mix-blend-mode:normal !important;
+}
+@media (prefers-contrast: more) {
+  .${className} {
+    background-color:#ffea00 !important;
+    outline:3px solid #000 !important;
+    box-shadow:0 0 0 2px #fff,0 0 0 5px #000 !important;
+  }
+}
+@media (forced-colors: active) {
+  .${className} {
+    forced-color-adjust:none;
+    background-color:Highlight !important;
+    color:HighlightText !important;
+    outline:2px solid CanvasText !important;
+    box-shadow:none !important;
+  }
+}
 `
       document.documentElement.appendChild(style)
     }
@@ -219,6 +251,7 @@
 
       const highlight = document.createElement("span")
       highlight.className = className
+      if (diagnosticsMode) highlight.setAttribute(diagnosticsAttribute, `${positionIndex}:${segment.matchStart}`)
       highlight.appendChild(range.extractContents())
       range.insertNode(highlight)
       currentHighlight = highlight
